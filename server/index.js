@@ -8,15 +8,42 @@ const RoomManager = require('./roomManager');
 
 const app = express();
 const server = http.createServer(app);
+
+// CORS origins for production and development
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://your-actual-netlify-site.netlify.app', // Replace with your actual Netlify URL
+  process.env.FRONTEND_URL
+].filter(Boolean);
+
 const io = socketIo(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+    origin: allowedOrigins,
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
-app.use(cors());
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
 app.use(express.json());
+
+// Health check endpoint for Render
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'OK', message: 'Least Count Server is running' });
+});
+
+// Basic info endpoint
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Least Count Card Game Server',
+    status: 'Running',
+    version: '1.0.0'
+  });
+});
 
 const roomManager = new RoomManager();
 const gameLogic = new GameLogic();
