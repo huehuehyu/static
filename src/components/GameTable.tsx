@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { GameState, Player, Card as CardType, GameAction } from '../types/game';
 import Card from './Card';
 import { calculateHandValue } from '../utils/cards';
-import { Eye, SkipForward, Clock, Trophy } from 'lucide-react';
+import { Clock, Trophy } from 'lucide-react';
 
 interface GameTableProps {
   gameState: GameState;
@@ -12,9 +12,9 @@ interface GameTableProps {
 }
 
 export default function GameTable({ gameState, currentPlayer, onGameAction, onLeaveGame }: GameTableProps) {
-  const [selectedCard, setSelectedCard] = useState<string | null>(null);
-  const [hasPerformedAction, setHasPerformedAction] = useState(false);
-  const [turnTimeLeft, setTurnTimeLeft] = useState(30);
+  const [selectedCards, setSelectedCards] = useState<string[]>([]);
+  const [hasPickedCard, setHasPickedCard] = useState(false);
+  const [turnTimeLeft, setTurnTimeLeft] = useState(60);
 
   const isMyTurn = gameState.players[gameState.currentPlayerIndex]?.id === currentPlayer.id;
   const currentTurnPlayer = gameState.players[gameState.currentPlayerIndex];
@@ -23,86 +23,100 @@ export default function GameTable({ gameState, currentPlayer, onGameAction, onLe
   const myHandValue = calculateHandValue(myCards, gameState.jokerValue);
 
   useEffect(() => {
-    setHasPerformedAction(false);
-    setTurnTimeLeft(30);
+    setSelectedCards([]);
+    setHasPickedCard(false);
+    setTurnTimeLeft(60);
   }, [gameState.currentPlayerIndex]);
 
   useEffect(() => {
-    if (isMyTurn && !hasPerformedAction && turnTimeLeft > 0) {
+    if (isMyTurn && turnTimeLeft > 0) {
       const timer = setTimeout(() => {
         setTurnTimeLeft(prev => prev - 1);
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [isMyTurn, hasPerformedAction, turnTimeLeft]);
+  }, [isMyTurn, turnTimeLeft]);
 
-  const handleCardDoubleClick = (card: CardType) => {
-    if (!isMyTurn || hasPerformedAction) return;
+  const handleCardClick = (card: CardType) => {
+    if (!isMyTurn) return;
 
-    // Check if it's a card from my hand (drop action)
-    if (myCards.some(c => c.id === card.id)) {
-      if (selectedCard) {
-        // Drop the selected card
-        onGameAction({
-          type: 'DROP_CARD',
-          cardId: selectedCard,
-          playerId: currentPlayer.id
-        });
-        setHasPerformedAction(true);
-        setSelectedCard(null);
+    const cardId = card.id;
+    if (selectedCards.includes(cardId)) {
+      setSelectedCards(prev => prev.filter(id => id !== cardId));
+    } else {
+      const cardValue = card.value;
+      // Allow selecting multiple cards of the same value
+      if (selectedCards.length === 0) {
+        setSelectedCards([cardId]);
       } else {
-        setSelectedCard(card.id);
+        const firstSelectedCard = myCards.find(c => c.id === selectedCards[0]);
+        if (firstSelectedCard?.value === cardValue) {
+          setSelectedCards(prev => [...prev, cardId]);
+        }
       }
     }
   };
 
   const handlePickDeck = () => {
-    if (!isMyTurn || hasPerformedAction) return;
+    if (!isMyTurn || hasPickedCard) return;
+    
     onGameAction({
       type: 'PICK_DECK',
       playerId: currentPlayer.id
     });
-    setHasPerformedAction(true);
+    setHasPickedCard(true);
   };
 
   const handlePickDiscard = () => {
-    if (!isMyTurn || hasPerformedAction || !topDiscardCard) return;
+    if (!isMyTurn || hasPickedCard || !topDiscardCard) return;
+    
     onGameAction({
       type: 'PICK_DISCARD',
       playerId: currentPlayer.id
     });
-    setHasPerformedAction(true);
+    setHasPickedCard(true);
   };
 
-  const handleShowCards = () => {
-    if (!isMyTurn || hasPerformedAction || (gameState.isFirstRound && !currentPlayer.canShow)) return;
-    onGameAction({
-      type: 'SHOW_CARDS',
-      playerId: currentPlayer.id
-    });
-    setHasPerformedAction(true);
+  const handlePlayCards = () => {
+    if (!isMyTurn || selectedCards.length === 0) return;
+
+    // Check if playing the same card as top discard (no need to pick)
+    const firstSelectedCard = myCards.find(c => c.id === selectedCards[0]);
+    const sameAsDiscard = topDiscardCard && firstSelectedCard?.value === topDiscardCard.value;
+
+    if (sameAsDiscard || hasPickedCard) {
+      // Play the selected cards
+      selectedCards.forEach((cardId, index) => {
+        setTimeout(() => {
+          onGameAction({
+            type: 'DROP_CARD',
+            cardId: cardId,
+            playerId: currentPlayer.id
+          });
+        }, index * 100);
+      });
+      
+      setSelectedCards([]);
+      setHasPickedCard(false);
+    }
   };
 
-  const handlePassTurn = () => {
-    if (!isMyTurn) return;
-    onGameAction({
-      type: 'PASS_TURN',
-      playerId: currentPlayer.id
-    });
-    setHasPerformedAction(false);
-  };
-
-  const getPlayerPosition = (index: number, totalPlayers: number) => {
-    const angle = (index * 360) / totalPlayers;
-    const radius = 200;
-    const x = Math.cos((angle - 90) * Math.PI / 180) * radius;
-    const y = Math.sin((angle - 90) * Math.PI / 180) * radius;
-    return { x, y };
+  const getPlayerSide = (playerIndex: number, totalPlayers: number, currentPlayerIndex: number) => {
+    const relativePosition = (playerIndex - currentPlayerIndex + totalPlayers) % totalPlayers;
+    
+    if (totalPlayers === 2) {
+      return relativePosition === 0 ? 'bottom' : 'top';
+    } else if (totalPlayers === 3) {
+      return ['bottom', 'top-left', 'top-right'][relativePosition];
+    } else if (totalPlayers === 4) {
+      return ['bottom', 'left', 'top', 'right'][relativePosition];
+    }
+    return 'bottom';
   };
 
   if (gameState.gameEnded) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-800 via-green-700 to-emerald-800 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-slate-800 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 text-center">
           <Trophy size={64} className="mx-auto mb-4 text-yellow-500" />
           <h1 className="text-3xl font-bold text-gray-800 mb-4">Game Over!</h1>
@@ -139,296 +153,209 @@ export default function GameTable({ gameState, currentPlayer, onGameAction, onLe
     );
   }
 
+  const myPlayerIndex = gameState.players.findIndex(p => p.id === currentPlayer.id);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-800 via-green-600 to-emerald-900 p-2 sm:p-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Enhanced Header */}
-        <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-xl p-3 sm:p-6 mb-4 border border-white/20">
-          <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-            <div className="flex items-center space-x-4">
-              <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-4 py-2 rounded-lg">
-                <h1 className="text-xl sm:text-2xl font-bold">♠ Least Count ♦</h1>
-              </div>
-              <div className="text-sm text-gray-700 bg-gray-100 px-3 py-2 rounded-lg">
-                <div className="font-semibold">Round {gameState.roundNumber}</div>
-                <div className="text-xs">Joker: <span className="font-bold text-red-600">{gameState.jokerValue}</span></div>
-              </div>
+    <div className="min-h-screen bg-slate-800 text-white">
+      {/* Header */}
+      <div className="bg-slate-900 p-4 flex justify-between items-center">
+        <div className="flex items-center space-x-4">
+          <h1 className="text-2xl font-bold">Least Count</h1>
+          <span className="bg-slate-700 px-3 py-1 rounded">Room ID: {gameState.id}</span>
+        </div>
+        <div className="flex items-center space-x-4">
+          {isMyTurn && (
+            <div className="flex items-center space-x-2 text-orange-400">
+              <Clock size={20} />
+              <span className="font-bold">{turnTimeLeft}s</span>
             </div>
-            
-            <div className="flex items-center space-x-4">
-              {isMyTurn && (
-                <div className="flex items-center space-x-2 bg-orange-100 text-orange-700 px-3 py-2 rounded-lg animate-pulse">
-                  <Clock size={18} />
-                  <span className="font-bold">{turnTimeLeft}s</span>
-                </div>
-              )}
-              <div className="text-sm bg-blue-100 text-blue-700 px-3 py-2 rounded-lg">
-                <div className="font-semibold">Your Score</div>
-                <div className="text-center font-bold">{myHandValue} pts</div>
-              </div>
-              <button
-                onClick={onLeaveGame}
-                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
-              >
-                Leave Game
-              </button>
+          )}
+          <button
+            onClick={onLeaveGame}
+            className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded transition-colors"
+          >
+            Leave
+          </button>
+        </div>
+      </div>
+
+      <div className="flex h-screen">
+        {/* Left Sidebar - Deck and Joker */}
+        <div className="w-64 bg-slate-900 p-6 flex flex-col items-center space-y-6">
+          <div className="text-center">
+            <h3 className="text-lg font-bold mb-2">Joker</h3>
+            <div className="text-4xl font-bold text-red-400">{gameState.jokerValue}</div>
+          </div>
+          
+          <div className="text-center">
+            <h3 className="text-lg font-bold mb-4">Deck</h3>
+            <div className="relative">
+              <Card
+                card={{ id: 'deck', suit: 'spades', value: 'DECK', numericValue: 0 }}
+                faceDown={true}
+                isClickable={isMyTurn && !hasPickedCard}
+                onDoubleClick={handlePickDeck}
+                className={`w-24 h-36 ${isMyTurn && !hasPickedCard ? 'cursor-pointer hover:scale-105' : ''}`}
+              />
+              <div className="mt-2 text-sm text-slate-400">{gameState.deck.length} cards</div>
             </div>
           </div>
         </div>
 
-        {/* Enhanced Game Table */}
-        <div className="relative bg-gradient-to-br from-green-700 via-green-600 to-green-800 rounded-3xl shadow-2xl p-4 sm:p-8 border-4 border-green-800" style={{ minHeight: '500px' }}>
-          {/* Table surface texture */}
-          <div className="absolute inset-0 bg-green-700/30 rounded-3xl"></div>
-          
-          {/* Players around the table */}
-          <div className="relative z-10">
-            {gameState.players.map((player, index) => {
-              const position = getPlayerPosition(index, gameState.players.length);
-              const isCurrentTurn = index === gameState.currentPlayerIndex;
-              const isMe = player.id === currentPlayer.id;
-              
-              return (
-                <div
-                  key={player.id}
-                  className="absolute transform -translate-x-1/2 -translate-y-1/2"
-                  style={{
-                    left: `calc(50% + ${position.x * 0.8}px)`,
-                    top: `calc(50% + ${position.y * 0.8}px)`
-                  }}
-                >
-                  {/* Player info card */}
-                  <div className={`text-center p-3 rounded-xl shadow-lg min-w-36 transition-all duration-300 ${
-                    isCurrentTurn 
-                      ? 'bg-gradient-to-br from-yellow-400 to-amber-500 text-yellow-900 transform scale-110 shadow-xl' 
-                      : isMe
-                        ? 'bg-gradient-to-br from-blue-400 to-blue-600 text-white'
-                        : 'bg-white/95 backdrop-blur-sm text-gray-800'
-                  } border-2 ${isCurrentTurn ? 'border-yellow-600' : isMe ? 'border-blue-700' : 'border-white/30'}`}>
-                    
-                    <div className="font-bold text-sm mb-1">{player.name}</div>
-                    <div className="text-xs mb-1">
-                      Hand: {calculateHandValue(player.cards, gameState.jokerValue)} pts
-                    </div>
-                    <div className="text-xs">
-                      Total: <span className="font-bold">{player.totalScore}</span>
-                    </div>
-                    {player.hasShown && (
-                      <div className="text-xs bg-green-600 text-white px-2 py-1 rounded-full mt-1 font-bold">
-                        SHOWN
-                      </div>
-                    )}
-                    {isCurrentTurn && (
-                      <div className="text-xs bg-yellow-700 text-yellow-100 px-2 py-1 rounded-full mt-1 font-bold animate-bounce">
-                        TURN
-                      </div>
-                    )}
+        {/* Main Game Area */}
+        <div className="flex-1 relative">
+          {/* Players positioned at sides */}
+          {gameState.players.map((player, index) => {
+            const side = getPlayerSide(index, gameState.players.length, myPlayerIndex);
+            const isCurrentTurn = index === gameState.currentPlayerIndex;
+            const isMe = player.id === currentPlayer.id;
+            
+            let positionClasses = '';
+            if (side === 'bottom') {
+              positionClasses = 'absolute bottom-4 left-1/2 transform -translate-x-1/2';
+            } else if (side === 'top') {
+              positionClasses = 'absolute top-4 left-1/2 transform -translate-x-1/2';
+            } else if (side === 'left') {
+              positionClasses = 'absolute left-4 top-1/2 transform -translate-y-1/2';
+            } else if (side === 'right') {
+              positionClasses = 'absolute right-4 top-1/2 transform -translate-y-1/2';
+            } else if (side === 'top-left') {
+              positionClasses = 'absolute top-4 left-4';
+            } else if (side === 'top-right') {
+              positionClasses = 'absolute top-4 right-4';
+            }
+
+            return (
+              <div key={player.id} className={positionClasses}>
+                {/* Player Info */}
+                <div className={`p-3 rounded-lg mb-2 text-center ${
+                  isCurrentTurn 
+                    ? 'bg-yellow-600 text-yellow-100' 
+                    : isMe 
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-700 text-slate-200'
+                }`}>
+                  <div className="font-bold">{player.name}</div>
+                  <div className="text-sm">
+                    {calculateHandValue(player.cards, gameState.jokerValue)} pts
                   </div>
-                  
-                  {/* Player's cards preview */}
-                  <div className="flex mt-3 justify-center space-x-1">
-                    {player.cards.slice(0, Math.min(4, player.cards.length)).map((card, cardIndex) => (
-                      <div
-                        key={card.id}
-                        className={`w-8 h-12 sm:w-10 sm:h-14 rounded shadow-md transition-transform hover:scale-105 ${
-                          player.id !== currentPlayer.id && !player.hasShown
-                            ? 'bg-gradient-to-br from-blue-900 to-blue-700 border-2 border-blue-800'
-                            : card.isJoker
-                              ? 'bg-gradient-to-br from-red-500 to-red-700 border-2 border-red-800'
-                              : 'bg-white border border-gray-300'
-                        }`}
-                        style={{ transform: `rotate(${(cardIndex - 1.5) * 5}deg)` }}
-                      >
-                        {player.id === currentPlayer.id || player.hasShown ? (
-                          <Card
-                            card={card}
-                            faceDown={false}
-                            className="w-full h-full text-xs"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-white text-xs font-bold">
-                            ?
+                  {isCurrentTurn && (
+                    <div className="text-xs font-bold">TURN</div>
+                  )}
+                </div>
+
+                {/* Player Cards */}
+                {isMe ? (
+                  <div className="flex space-x-2 justify-center">
+                    {myCards.map((card) => (
+                      <div key={card.id} className="relative">
+                        <Card
+                          card={card}
+                          isClickable={isMyTurn}
+                          isSelected={selectedCards.includes(card.id)}
+                          onDoubleClick={() => handleCardClick(card)}
+                          className={`w-16 h-24 transition-all ${
+                            selectedCards.includes(card.id) ? 'transform -translate-y-2' : ''
+                          }`}
+                        />
+                        {card.isJoker && (
+                          <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs px-1 rounded-full">
+                            J
                           </div>
                         )}
                       </div>
                     ))}
-                    {player.cards.length > 4 && (
-                      <div className="w-8 h-12 sm:w-10 sm:h-14 bg-gray-500/80 rounded flex items-center justify-center text-white text-xs font-bold shadow-md">
-                        +{player.cards.length - 4}
-                      </div>
-                    )}
                   </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Enhanced Center area with deck and discard pile */}
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 flex space-x-6 sm:space-x-12 z-20">
-            {/* Deck */}
-            <div className="text-center">
-              <div className="mb-3 relative">
-                {/* Stack effect for deck */}
-                <div className="absolute top-1 left-1 w-20 h-28 bg-blue-800 rounded-lg shadow-lg"></div>
-                <div className="absolute top-0.5 left-0.5 w-20 h-28 bg-blue-700 rounded-lg shadow-lg"></div>
-                <Card
-                  card={{ id: 'deck', suit: 'spades', value: 'DECK', numericValue: 0 }}
-                  faceDown={true}
-                  isClickable={isMyTurn && !hasPerformedAction}
-                  onDoubleClick={handlePickDeck}
-                  className={`w-20 h-28 relative z-10 transition-transform duration-200 ${
-                    isMyTurn && !hasPerformedAction ? 'hover:scale-105 cursor-pointer' : ''
-                  }`}
-                />
-                {isMyTurn && !hasPerformedAction && (
-                  <div className="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center text-white text-xs font-bold animate-pulse">
-                    !
-                  </div>
-                )}
-              </div>
-              <div className="bg-white/90 backdrop-blur-sm text-green-800 text-sm font-bold px-3 py-1 rounded-lg shadow-lg">
-                Deck ({gameState.deck.length})
-              </div>
-            </div>
-
-            {/* Discard pile */}
-            <div className="text-center">
-              <div className="mb-3 relative">
-                {topDiscardCard ? (
-                  <>
-                    <Card
-                      card={topDiscardCard}
-                      isClickable={isMyTurn && !hasPerformedAction}
-                      onDoubleClick={handlePickDiscard}
-                      className={`w-20 h-28 shadow-xl transition-transform duration-200 ${
-                        isMyTurn && !hasPerformedAction ? 'hover:scale-105 cursor-pointer' : ''
-                      }`}
-                    />
-                    {isMyTurn && !hasPerformedAction && (
-                      <div className="absolute -top-2 -right-2 w-6 h-6 bg-purple-500 rounded-full flex items-center justify-center text-white text-xs font-bold animate-pulse">
-                        !
-                      </div>
-                    )}
-                  </>
                 ) : (
-                  <div className="w-20 h-28 border-2 border-dashed border-white/50 rounded-lg flex items-center justify-center bg-green-600/30">
-                    <span className="text-white text-xs font-bold">Empty</span>
+                  <div className="flex space-x-1 justify-center">
+                    {Array.from({ length: Math.min(player.cards.length, 7) }).map((_, i) => (
+                      <Card
+                        key={i}
+                        card={{ id: `back-${i}`, suit: 'spades', value: '?', numericValue: 0 }}
+                        faceDown={true}
+                        className="w-12 h-18"
+                      />
+                    ))}
                   </div>
                 )}
               </div>
-              <div className="bg-white/90 backdrop-blur-sm text-green-800 text-sm font-bold px-3 py-1 rounded-lg shadow-lg">
-                Discard
-              </div>
-            </div>
-          </div>
+            );
+          })}
 
-          {/* Turn indicator */}
-          {isMyTurn && (
-            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-yellow-400 text-yellow-900 px-6 py-2 rounded-full font-bold text-lg shadow-xl animate-bounce">
-              YOUR TURN!
-            </div>
-          )}
-        </div>
-
-        {/* Enhanced My Cards Section */}
-        <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-xl p-4 sm:p-6 mt-4 border border-white/20">
-          <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-2">
-            <h3 className="text-lg sm:text-xl font-bold text-gray-800 flex items-center space-x-2">
-              <span>🃏</span>
-              <span>Your Hand (Value: {myHandValue})</span>
-            </h3>
-            <div className={`text-sm px-4 py-2 rounded-lg font-semibold ${
-              isMyTurn ? 
-                'bg-green-100 text-green-700' : 
-                'bg-gray-100 text-gray-600'
-            }`}>
-              {isMyTurn ? (
-                hasPerformedAction ? 'Waiting for turn to complete...' : '🎯 Your turn - Make your move!'
+          {/* Center - Discard Pile */}
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+            <div className="text-center">
+              <h3 className="text-lg font-bold mb-4">Table</h3>
+              {topDiscardCard ? (
+                <Card
+                  card={topDiscardCard}
+                  isClickable={isMyTurn && !hasPickedCard}
+                  onDoubleClick={handlePickDiscard}
+                  className={`w-24 h-36 ${isMyTurn && !hasPickedCard ? 'cursor-pointer hover:scale-105' : ''}`}
+                />
               ) : (
-                `⏳ ${currentTurnPlayer?.name}'s turn`
+                <div className="w-24 h-36 border-2 border-dashed border-slate-500 rounded-lg flex items-center justify-center">
+                  <span className="text-slate-500">Empty</span>
+                </div>
               )}
             </div>
           </div>
-          
-          {/* Cards display */}
-          <div className="flex space-x-2 mb-6 justify-center flex-wrap gap-2">
-            {myCards.map((card) => (
-              <div key={card.id} className="relative">
-                <Card
-                  card={card}
-                  isClickable={isMyTurn && !hasPerformedAction}
-                  isSelected={selectedCard === card.id}
-                  onDoubleClick={handleCardDoubleClick}
-                  className={`transition-all duration-200 ${
-                    selectedCard === card.id ? 'transform -translate-y-2 shadow-xl' : ''
-                  } ${card.isJoker ? 'ring-2 ring-red-400' : ''}`}
-                />
-                {card.isJoker && (
-                  <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs px-1 rounded-full font-bold">
-                    J
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
 
-          {/* Enhanced Action Buttons */}
-          <div className="flex flex-wrap justify-center gap-3">
+          {/* Turn Status */}
+          <div className="absolute top-4 left-1/2 transform -translate-x-1/2">
+            <div className="bg-slate-700 px-4 py-2 rounded-lg text-center">
+              {isMyTurn ? (
+                <span className="text-green-400 font-bold">YOUR TURN</span>
+              ) : (
+                <span>{currentTurnPlayer?.name}'s Turn</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom Action Bar */}
+      {isMyTurn && (
+        <div className="fixed bottom-0 left-0 right-0 bg-slate-900 p-4">
+          <div className="max-w-4xl mx-auto flex justify-center space-x-4">
             <button
               onClick={handlePickDeck}
-              disabled={!isMyTurn || hasPerformedAction}
-              className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl font-semibold flex items-center space-x-2"
+              disabled={hasPickedCard}
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg font-bold transition-colors"
             >
-              <span>🃏</span>
-              <span>Pick Deck</span>
+              Pick Deck
             </button>
             
             <button
               onClick={handlePickDiscard}
-              disabled={!isMyTurn || hasPerformedAction || !topDiscardCard}
-              className="px-6 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl hover:from-purple-600 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl font-semibold flex items-center space-x-2"
+              disabled={hasPickedCard || !topDiscardCard}
+              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg font-bold transition-colors"
             >
-              <span>♻️</span>
-              <span>Pick Discard</span>
+              Pick Table Card
             </button>
 
             <button
-              onClick={handleShowCards}
-              disabled={!isMyTurn || hasPerformedAction || (gameState.isFirstRound && !currentPlayer.canShow)}
-              className="px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl hover:from-green-600 hover:to-green-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl font-semibold flex items-center space-x-2"
+              onClick={handlePlayCards}
+              disabled={selectedCards.length === 0 || (!hasPickedCard && !(topDiscardCard && myCards.find(c => c.id === selectedCards[0])?.value === topDiscardCard.value))}
+              className="px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg font-bold transition-colors"
             >
-              <Eye size={16} />
-              <span>Show Cards</span>
-            </button>
-
-            <button
-              onClick={handlePassTurn}
-              disabled={!isMyTurn}
-              className="px-6 py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-xl hover:from-orange-600 hover:to-orange-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl font-semibold flex items-center space-x-2"
-            >
-              <SkipForward size={16} />
-              <span>Pass Turn</span>
+              Play Cards ({selectedCards.length})
             </button>
           </div>
-
-          {/* Helper text */}
-          {selectedCard && (
-            <div className="mt-4 text-center">
-              <div className="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg inline-block">
-                💡 Card selected! Double-click another card to drop the selected one
-              </div>
-            </div>
-          )}
           
-          {isMyTurn && !hasPerformedAction && !selectedCard && (
-            <div className="mt-4 text-center">
-              <div className="bg-green-100 text-green-700 px-4 py-2 rounded-lg inline-block">
-                🎮 Pick a card from deck/discard, then drop one from your hand
-              </div>
+          {selectedCards.length > 0 && (
+            <div className="text-center mt-2 text-sm text-slate-400">
+              Selected: {selectedCards.length} card(s) • 
+              {!hasPickedCard && topDiscardCard && myCards.find(c => c.id === selectedCards[0])?.value === topDiscardCard.value
+                ? " Same as table card - no pick needed"
+                : hasPickedCard 
+                  ? " Ready to play"
+                  : " Pick a card first"
+              }
             </div>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

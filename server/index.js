@@ -312,7 +312,7 @@ function startTurnTimer(roomId) {
       // Start timer for next player
       startTurnTimer(roomId);
     }
-  }, 30000); // 30 seconds per turn
+  }, 60000); // 60 seconds per turn
   
   turnTimers.set(roomId, timer);
 }
