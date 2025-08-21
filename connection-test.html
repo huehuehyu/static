@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Connection Test</title>
+</head>
+<body>
+    <h1>Least Count Connection Test</h1>
+    <div id="status">Testing connection...</div>
+    <div id="logs"></div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        const status = document.getElementById('status');
+        const logs = document.getElementById('logs');
+        
+        function log(message) {
+            logs.innerHTML += '<p>' + new Date().toLocaleTimeString() + ': ' + message + '</p>';
+        }
+        
+        // Replace with your actual Render URL
+        const serverUrl = 'https://least-count-backend.onrender.com';
+        
+        log('Attempting to connect to: ' + serverUrl);
+        
+        const socket = io(serverUrl);
+        
+        socket.on('connect', () => {
+            status.innerHTML = '✅ Connected successfully!';
+            status.style.color = 'green';
+            log('Socket connected with ID: ' + socket.id);
+        });
+        
+        socket.on('disconnect', () => {
+            status.innerHTML = '❌ Disconnected';
+            status.style.color = 'red';
+            log('Socket disconnected');
+        });
+        
+        socket.on('connect_error', (error) => {
+            status.innerHTML = '❌ Connection failed: ' + error.message;
+            status.style.color = 'red';
+            log('Connection error: ' + error.message);
+        });
+    </script>
+</body>
+</html>

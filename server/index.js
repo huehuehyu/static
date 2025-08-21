@@ -13,7 +13,7 @@ const server = http.createServer(app);
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
-  'https://your-actual-netlify-site.netlify.app', // Replace with your actual Netlify URL
+  'https://imaginative-mooncake-31cc7e.netlify.app', // Remove trailing slash
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
